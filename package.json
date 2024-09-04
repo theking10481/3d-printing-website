@@ -1,12 +1,9 @@
 {
-    "name": "project-name",
+    "name": "3d-printing-website",
     "version": "1.0.0",
-    "description": "Description of the project",
-    "main": "index.js",
     "scripts": {
-      "start": "node index.js"
+      "start": "vercel dev"
     },
-    "dependencies": {
-      "express": "^4.17.1"
-    }
-  }  
+    "dependencies": {}
+  }
+  
