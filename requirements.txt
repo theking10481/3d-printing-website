@@ -1,0 +1,4 @@
+pandas
+uszipcode
+numpy
+openpyxl  # Required for reading Excel files with pandas

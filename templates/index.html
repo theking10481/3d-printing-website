@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Print Quote</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <h1>3D Print Quote Calculator</h1>
+    <form id="quoteForm">
+        <label for="volume">Enter Volume (cm³):</label>
+        <input type="number" id="volume" name="volume" required><br>
+        <label for="zip_code">ZIP Code:</label>
+        <input type="text" id="zip_code" name="zip_code" required><br>
+        <label for="filament_type">Filament Type:</label>
+        <select id="filament_type" name="filament_type">
+            <option value="PLA Basic">PLA Basic</option>
+            <option value="PETG Basic">PETG Basic</option>
+            <!-- Add other filament options -->
+        </select><br>
+        <label for="quantity">Quantity:</label>
+        <input type="number" id="quantity" name="quantity" value="1" min="1"><br>
+        <label for="dimension_x">Dimension X (mm):</label>
+        <input type="number" id="dimension_x" name="dimension_x" required><br>
+        <label for="dimension_y">Dimension Y (mm):</label>
+        <input type="number" id="dimension_y" name="dimension_y" required><br>
+        <label for="dimension_z">Dimension Z (mm):</label>
+        <input type="number" id="dimension_z" name="dimension_z" required><br>
+        <label for="rush_order">Rush Order:</label>
+        <input type="checkbox" id="rush_order" name="rush_order"><br>
+        <label for="use_usps_connect_local">Use USPS Connect Local:</label>
+        <input type="checkbox" id="use_usps_connect_local" name="use_usps_connect_local"><br>
+        <button type="submit">Get Quote</button>
+    </form>
+    <div id="quoteResult"></div>
+    <script src="/static/app.js"></script>
+</body>
+</html>

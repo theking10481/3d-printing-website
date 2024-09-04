@@ -1,0 +1,12 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+}
+form {
+    margin-bottom: 20px;
+}
+#quoteResult {
+    font-size: 18px;
+    color: #333;
+}
