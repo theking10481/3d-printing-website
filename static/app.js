@@ -13,20 +13,35 @@ document.getElementById('quoteForm').addEventListener('submit', async function(e
         parseFloat(document.getElementById('dimension_z').value)
     ];
 
-    const response = await fetch('/api/quote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            volume_cm3: volume,
-            zip_code: zipCode,
-            filament_type: filamentType,
-            quantity: quantity,
-            model_dimensions: modelDimensions,
-            rush_order: rushOrder,
-            use_usps_connect_local: useUspsConnectLocal
-        })
-    });
+    try {
+        const response = await fetch('/api/quote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                volume_cm3: volume,
+                zip_code: zipCode,
+                filament_type: filamentType,
+                quantity: quantity,
+                model_dimensions: modelDimensions,
+                rush_order: rushOrder,
+                use_usps_connect_local: useUspsConnectLocal
+            })
+        });
 
-    const data = await response.json();
-    document.getElementById('quoteResult').innerHTML = `Estimated Quote: $${data.total_cost_with_tax}`;
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('Response:', data);  // Log to see the response object
+        
+        if (data.error) {
+            document.getElementById('quoteResult').innerHTML = `Error: ${data.error}`;
+        } else {
+            document.getElementById('quoteResult').innerHTML = `Estimated Quote: $${data.total_cost_with_tax}`;
+        }
+    } catch (error) {
+        console.error('Error during fetch:', error);
+        document.getElementById('quoteResult').innerHTML = `Failed to fetch quote: ${error.message}`;
+    }
 });
