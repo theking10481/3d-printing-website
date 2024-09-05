@@ -1,6 +1,15 @@
-pandas
-uszipcode
-numpy
-openpyxl  # Required for reading Excel files with pandas
-Flask>=2.0.0
-Werkzeug>=2.0.0
+blinker==1.8.2
+click==8.1.7
+debugpy==1.8.5
+Flask==3.0.3
+importlib_metadata==8.4.0
+itsdangerous==2.2.0
+Jinja2==3.1.4
+MarkupSafe==2.1.5
+numpy==2.0.1
+opencv-python==4.10.0.84
+psutil==6.0.0
+typing==3.7.4.3
+typing_extensions==4.12.2
+Werkzeug==3.0.4
+zipp==3.20.1
