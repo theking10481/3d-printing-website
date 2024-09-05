@@ -3,7 +3,7 @@ import csv
 # Function to load sales tax rates from the CSV using built-in csv module
 def load_sales_tax_rates():
     tax_rates = {}
-    with open('2024 Sales Tax Rates State  Local Sales Tax by State.csv', mode='r') as file:
+    with open('stateSalesTax.csv', mode='r') as file:
         reader = csv.DictReader(file)
         for row in reader:
             # Remove the '%' and convert to a decimal
