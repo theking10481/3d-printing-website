@@ -3,7 +3,7 @@ import csv
 # Function to load the ZIP code data from CSV using built-in csv module
 def load_zip_data():
     zip_data = {}
-    with open('path_to_your_csv/us-zip-code-latitude-and-longitude.csv', mode='r') as file:
+    with open('uszips.csv', mode='r') as file:
         reader = csv.DictReader(file)
         for row in reader:
             zip_data[row['zip']] = row['state_name']
