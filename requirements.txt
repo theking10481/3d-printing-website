@@ -2,4 +2,5 @@ pandas
 uszipcode
 numpy
 openpyxl  # Required for reading Excel files with pandas
-Flask==2.0.2
+Flask>=2.0.0
+Werkzeug>=2.0.0
