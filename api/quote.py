@@ -55,3 +55,26 @@ def handler(event, context):
             'statusCode': 500,
             'body': json.dumps({'error': str(e)})
         }
+def handler(request):
+    try:
+        body = request.get_json()
+        
+        # Extract parameters from the request body
+        zip_code = body.get('zip_code')
+        total_cost = body.get('total_cost')
+        
+        # Calculate total cost with tax
+        total_with_tax, sales_tax = calculate_total_with_tax(zip_code, total_cost, sales_tax_rates, get_state_from_zip)
+        
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'total_cost_with_tax': total_with_tax,
+                'sales_tax': sales_tax
+            })
+        }
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': str(e)})
+        }
