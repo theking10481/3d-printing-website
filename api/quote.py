@@ -152,19 +152,23 @@ def quote():
         # Total cost before tax
         total_cost_before_tax = (base_cost + total_material_cost + full_volume_surcharge) * quantity + shipping_cost + rush_order_surcharge
 
-        # Correct the function call by passing get_state_from_zip as well
+        # Calculate total cost with tax
         total_with_tax, sales_tax = calculate_total_with_tax(zip_code, total_cost_before_tax, sales_tax_rates, get_state_from_zip)
 
+        # Format all cost fields to two decimal places
+        response_data = {
+            'total_cost_with_tax': round(total_with_tax, 2),
+            'sales_tax': round(sales_tax, 2),
+            'base_cost': round(base_cost, 2),
+            'material_cost': round(total_material_cost, 2),
+            'full_volume_surcharge': round(full_volume_surcharge, 2),
+            'shipping_cost': round(shipping_cost, 2),
+            'rush_order_surcharge': round(rush_order_surcharge, 2)
+        }
+
         # Return the result as a JSON response
-        return jsonify({
-            'total_cost_with_tax': total_with_tax,
-            'sales_tax': sales_tax,
-            'base_cost': base_cost,
-            'material_cost': total_material_cost,
-            'full_volume_surcharge': full_volume_surcharge,
-            'shipping_cost': shipping_cost,
-            'rush_order_surcharge': rush_order_surcharge
-        })
+        return jsonify(response_data)
+
     except Exception as e:
         logging.error("Error occurred: %s", e)
         return jsonify({'error': str(e)}), 500

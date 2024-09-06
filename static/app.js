@@ -13,39 +13,6 @@ document.getElementById('quoteForm').addEventListener('submit', async function(e
         parseFloat(document.getElementById('dimension_z').value)
     ];
 
-    // Client-side dimension checking
-    const standard_max = 250;
-    const full_volume_max = 256;
-    
-    let size_category = "standard";
-    let directions_over = {};
-
-    if (modelDimensions.some(dim => dim > full_volume_max)) {
-        size_category = "too_large";
-        directions_over = modelDimensions.reduce((acc, val, idx) => {
-            if (val > full_volume_max) {
-                acc[['X', 'Y', 'Z'][idx]] = val;
-            }
-            return acc;
-        }, {});
-    } else if (modelDimensions.some(dim => dim > standard_max)) {
-        size_category = "full_volume";
-        directions_over = modelDimensions.reduce((acc, val, idx) => {
-            if (val > standard_max) {
-                acc[['X', 'Y', 'Z'][idx]] = val - standard_max;
-            }
-            return acc;
-        }, {});
-    }
-
-    // Display warnings if needed
-    displayDimensionWarnings(size_category, directions_over);
-
-    // Halt form submission if the model is too large
-    if (size_category === "too_large") {
-        return;
-    }
-
     try {
         const response = await fetch('/api/quote', {
             method: 'POST',
@@ -66,24 +33,23 @@ document.getElementById('quoteForm').addEventListener('submit', async function(e
         }
 
         const data = await response.json();
+        console.log('Response:', data);  // Log to see the response object
+
         if (data.error) {
             document.getElementById('quoteResult').innerHTML = `Error: ${data.error}`;
         } else {
-            document.getElementById('quoteResult').innerHTML = `Estimated Quote: $${data.total_cost_with_tax}`;
+            document.getElementById('quoteResult').innerHTML = `
+                <p>Estimated Quote: $${data.total_cost_with_tax}</p>
+                <p>Base Cost: $${data.base_cost}</p>
+                <p>Material Cost: $${data.material_cost}</p>
+                <p>Full Volume Surcharge: $${data.full_volume_surcharge}</p>
+                <p>Shipping Cost: $${data.shipping_cost}</p>
+                <p>Rush Order Surcharge: $${data.rush_order_surcharge}</p>
+                <p>Sales Tax: $${data.sales_tax}</p>
+            `;
         }
     } catch (error) {
+        console.error('Error during fetch:', error);
         document.getElementById('quoteResult').innerHTML = `Failed to fetch quote: ${error.message}`;
     }
 });
-
-// Function to display warnings if dimensions are too large
-function displayDimensionWarnings(size_category, directions_over) {
-    const warningDiv = document.getElementById("quoteResult");
-    warningDiv.innerHTML = ""; // Clear previous warnings
-
-    if (size_category === "full_volume") {
-        warningDiv.innerHTML = `Warning: Full-volume printing required due to exceeding standard size limits in dimensions: ${JSON.stringify(directions_over)}`;
-    } else if (size_category === "too_large") {
-        warningDiv.innerHTML = `Error: Model too large in dimensions: ${JSON.stringify(directions_over)}`;
-    }
-}
