@@ -1,19 +1,3 @@
-// Function to display warnings if dimensions are too large
-function displayDimensionWarnings(size_category, size_info) {
-    const warningDiv = document.getElementById("quoteResult");
-    
-    // Clear any existing warnings
-    warningDiv.innerHTML = "";
-
-    if (size_category === "full_volume") {
-        warningDiv.innerHTML = "Warning: Full-volume printing required due to exceeding standard size limits.";
-    }
-    
-    if (size_category === "too_large") {
-        warningDiv.innerHTML = "Error: Model too large in the following dimensions: " + JSON.stringify(size_info);
-    }
-}
-
 document.getElementById('quoteForm').addEventListener('submit', async function(e) {
     e.preventDefault();
 
@@ -29,13 +13,37 @@ document.getElementById('quoteForm').addEventListener('submit', async function(e
         parseFloat(document.getElementById('dimension_z').value)
     ];
 
-    // Here, call the size-checking logic to display warnings before submitting
-    const size_category = checkModelSize(modelDimensions); // Replace with the actual logic that computes the size category
-    displayDimensionWarnings(size_category, modelDimensions); // Call the function to display warnings if needed
+    // Client-side dimension checking
+    const standard_max = 250;
+    const full_volume_max = 256;
+    
+    let size_category = "standard";
+    let directions_over = {};
 
-    // Continue with the API request only if there is no "too_large" error
+    if (modelDimensions.some(dim => dim > full_volume_max)) {
+        size_category = "too_large";
+        directions_over = modelDimensions.reduce((acc, val, idx) => {
+            if (val > full_volume_max) {
+                acc[['X', 'Y', 'Z'][idx]] = val;
+            }
+            return acc;
+        }, {});
+    } else if (modelDimensions.some(dim => dim > standard_max)) {
+        size_category = "full_volume";
+        directions_over = modelDimensions.reduce((acc, val, idx) => {
+            if (val > standard_max) {
+                acc[['X', 'Y', 'Z'][idx]] = val - standard_max;
+            }
+            return acc;
+        }, {});
+    }
+
+    // Display warnings if needed
+    displayDimensionWarnings(size_category, directions_over);
+
+    // Halt form submission if the model is too large
     if (size_category === "too_large") {
-        return;  // Stop submission if the model is too large
+        return;
     }
 
     try {
@@ -58,15 +66,24 @@ document.getElementById('quoteForm').addEventListener('submit', async function(e
         }
 
         const data = await response.json();
-        console.log('Response:', data);  // Log to see the response object
-        
         if (data.error) {
             document.getElementById('quoteResult').innerHTML = `Error: ${data.error}`;
         } else {
             document.getElementById('quoteResult').innerHTML = `Estimated Quote: $${data.total_cost_with_tax}`;
         }
     } catch (error) {
-        console.error('Error during fetch:', error);
         document.getElementById('quoteResult').innerHTML = `Failed to fetch quote: ${error.message}`;
     }
 });
+
+// Function to display warnings if dimensions are too large
+function displayDimensionWarnings(size_category, directions_over) {
+    const warningDiv = document.getElementById("quoteResult");
+    warningDiv.innerHTML = ""; // Clear previous warnings
+
+    if (size_category === "full_volume") {
+        warningDiv.innerHTML = `Warning: Full-volume printing required due to exceeding standard size limits in dimensions: ${JSON.stringify(directions_over)}`;
+    } else if (size_category === "too_large") {
+        warningDiv.innerHTML = `Error: Model too large in dimensions: ${JSON.stringify(directions_over)}`;
+    }
+}
