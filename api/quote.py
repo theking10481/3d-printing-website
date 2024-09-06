@@ -137,6 +137,14 @@ def quote():
         # Check model size and determine whether it needs full-volume printing
         size_category, size_info = check_model_size(model_dimensions)
 
+        # Check model size and determine whether it needs full-volume printing
+        size_category, size_info = check_model_size(model_dimensions)
+        # Check model size and determine whether it needs full-volume printing
+        size_category, size_info = check_model_size(model_dimensions)
+
+        # Call function to display size warnings in UI
+        displayDimensionWarnings(size_category, size_info);
+
         if size_category == "too_large":
             return jsonify({"error": "Model too large", "size_info": size_info}), 400
 
