@@ -89,6 +89,7 @@ def check_model_size(model_dimensions):
     # If the model fits within standard size
     return "standard", {}
 
+# Flask route to handle the quote request
 @app.route('/api/quote', methods=['POST'])
 def quote():
     logging.debug("Received request with data: %s", request.data)
@@ -151,8 +152,8 @@ def quote():
         # Total cost before tax
         total_cost_before_tax = (base_cost + total_material_cost + full_volume_surcharge) * quantity + shipping_cost + rush_order_surcharge
 
-        # Calculate total cost with tax
-        total_with_tax, sales_tax = calculate_total_with_tax(zip_code, total_cost_before_tax, sales_tax_rates)
+        # Correct the function call by passing get_state_from_zip as well
+        total_with_tax, sales_tax = calculate_total_with_tax(zip_code, total_cost_before_tax, sales_tax_rates, get_state_from_zip)
 
         # Return the result as a JSON response
         return jsonify({
