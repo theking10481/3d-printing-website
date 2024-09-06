@@ -89,6 +89,45 @@ def check_model_size(model_dimensions):
     # If the model fits within standard size
     return "standard", {}
 
+# Function to integrate USPS pricing for shipping
+def calculate_usps_shipping(zip_code, weight_kg, express=False, connect_local=False):
+    # USPS Connect Local pricing based on weight (in lbs), from the chart provided
+    weight_lbs = weight_kg * 2.20462  # Convert kg to lbs
+    if connect_local:
+        if weight_lbs <= 1:
+            return 4.50
+        elif weight_lbs <= 2:
+            return 4.77
+        elif weight_lbs <= 3:
+            return 5.21
+        elif weight_lbs <= 4:
+            return 5.62
+        elif weight_lbs <= 5:
+            return 6.00
+        elif weight_lbs <= 6:
+            return 6.35
+        elif weight_lbs <= 7:
+            return 6.69
+        elif weight_lbs <= 8:
+            return 7.01
+        elif weight_lbs <= 9:
+            return 7.31
+        elif weight_lbs <= 10:
+            return 7.61
+        elif weight_lbs <= 25:
+            return 11.49
+        else:
+            return 29.19  # Oversized fee
+    else:
+        # Priority Mail (Standard) rates for other options
+        if express:
+            if weight_kg <= 0.5:
+                return 26.35  # Commercial pricing for express
+            else:
+                return 30.45  # Standard express price at post office
+        else:
+            return 7.90  # Priority mail commercial rate for standard shipment
+
 # Flask route to handle the quote request
 @app.route('/api/quote', methods=['POST'])
 def quote():
@@ -100,7 +139,6 @@ def quote():
 
         # Extract necessary fields from the body
         zip_code = body.get('zip_code')
-        volume_cm3 = body.get('volume_cm3', 0)
         filament_type = body.get('filament_type')
         quantity = body.get('quantity', 1)
         model_dimensions = body.get('model_dimensions')
@@ -121,9 +159,12 @@ def quote():
         if filament_type not in material_densities or filament_type not in filament_prices:
             raise ValueError("Invalid filament type")
 
-        # Get the density and price for the selected filament
+        # Get the density for the selected filament
         density = material_densities[filament_type]
-        filament_cost_per_kg = filament_prices[filament_type]
+
+        # Calculate the volume based on the entered dimensions (X, Y, Z)
+        x, y, z = model_dimensions
+        volume_cm3 = (x * y * z) / 1000  # Convert from mm³ to cm³
 
         # Calculate total material weight in grams
         total_weight_g = calculate_weight(volume_cm3, density)
@@ -132,7 +173,7 @@ def quote():
         total_weight_kg = total_weight_g / 1000
 
         # Calculate total material cost based on filament cost
-        total_material_cost = total_weight_kg * filament_cost_per_kg * quantity
+        total_material_cost = total_weight_kg * filament_prices[filament_type] * quantity
 
         # Check model size and determine whether it needs full-volume printing
         size_category, size_info = check_model_size(model_dimensions)
@@ -143,8 +184,9 @@ def quote():
         # Full-volume surcharge (if applicable)
         full_volume_surcharge = base_cost * 0.15 if size_category == "full_volume" else 0
 
-        # Calculate shipping cost (use your USPS shipping logic here)
-        shipping_cost = 7.90  # Simplified for now
+        # Calculate shipping cost using USPS pricing logic
+        shipping_weight = calculate_total_weight(volume_cm3, density)
+        shipping_cost = calculate_usps_shipping(zip_code, shipping_weight, express=rush_order, connect_local=use_usps_connect_local)
 
         # Rush order surcharge
         rush_order_surcharge = 20 if rush_order else 0
@@ -155,15 +197,19 @@ def quote():
         # Calculate total cost with tax
         total_with_tax, sales_tax = calculate_total_with_tax(zip_code, total_cost_before_tax, sales_tax_rates, get_state_from_zip)
 
-        # Format all cost fields to two decimal places
+        # Helper function to return "Non Applicable" for zero values
+        def format_cost(value):
+            return "Non Applicable" if value == 0 else f"${value:.2f}"
+
+        # Prepare the response data with proper formatting
         response_data = {
-            'total_cost_with_tax': round(total_with_tax, 2),
-            'sales_tax': round(sales_tax, 2),
-            'base_cost': round(base_cost, 2),
-            'material_cost': round(total_material_cost, 2),
-            'full_volume_surcharge': round(full_volume_surcharge, 2),
-            'shipping_cost': round(shipping_cost, 2),
-            'rush_order_surcharge': round(rush_order_surcharge, 2)
+            'total_cost_with_tax': format_cost(round(total_with_tax, 2)),
+            'sales_tax': format_cost(round(sales_tax, 2)),
+            'base_cost': format_cost(round(base_cost, 2)),
+            'material_cost': format_cost(round(total_material_cost, 2)),
+            'full_volume_surcharge': format_cost(round(full_volume_surcharge, 2)),
+            'shipping_cost': format_cost(round(shipping_cost, 2)),
+            'rush_order_surcharge': format_cost(round(rush_order_surcharge, 2))
         }
 
         # Return the result as a JSON response
