@@ -74,16 +74,16 @@ def calculate_usps_shipping(zip_code, weight_kg, express=False, connect_local=Fa
 # Flask route to handle the quote request
 @app.route('/api/quote', methods=['POST'])
 def quote():
-    logging.debug("Received request with data: %s", request.data)
+    logging.debug("Received request with data: %s", request.form)
     try:
         # Parse form data instead of JSON
         zip_code = request.form.get('zip_code')
         filament_type = request.form.get('filament_type')
         quantity = int(request.form.get('quantity', 1))
-        
-        # Correct rush order logic: check for presence of 'rush_order'
-        rush_order = 'rush_order' in request.form  # Check if rush order is checked
-        use_usps_connect_local = 'use_usps_connect_local' in request.form
+
+        # Correctly handle rush order checkbox: check if the value is 'true'
+        rush_order = request.form.get('rush_order', 'false') == 'true'
+        use_usps_connect_local = request.form.get('use_usps_connect_local', 'false') == 'true'
 
         # Handle file upload (no saving to disk, use in-memory handling)
         if 'model_file' not in request.files:
