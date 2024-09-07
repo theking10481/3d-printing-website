@@ -86,6 +86,7 @@ def generate_presigned_url():
         # Get the file name from the request
         data = request.get_json()
         file_name = data.get('file_name')
+        print(f"Generating pre-signed URL for file: {file_name}")
 
         # Generate a pre-signed URL for uploading the file to S3
         presigned_url = s3_client.generate_presigned_url(
