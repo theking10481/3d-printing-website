@@ -2,10 +2,13 @@
   "version": 2,
   "builds": [
     { "src": "api/quote.py", "use": "@vercel/python" },
+    { "src": "api/generate_presigned_url.py", "use": "@vercel/python" },
     { "src": "static/*", "use": "@vercel/static" }
   ],
   "routes": [
     { "src": "/api/quote", "dest": "/api/quote.py" },
+    { "src": "/api/generate-presigned-url", "dest": "/api/generate_presigned_url.py" },
+    { "src": "/static/(.*)", "dest": "/static/$1" },
     { "src": "/", "dest": "/static/index.html" }
   ]
 }

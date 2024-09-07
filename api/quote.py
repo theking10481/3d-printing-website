@@ -1,10 +1,8 @@
 import io
 import json
-import boto3
 import requests
 import trimesh
 from flask import Flask, request, jsonify
-from werkzeug.utils import secure_filename
 import logging
 from .sales_tax_rates import sales_tax_rates
 from .zip_to_state import get_state_from_zip
@@ -14,10 +12,6 @@ logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
 
 MINIMUM_WEIGHT_G = 0.1  # Minimum weight in grams (adjust as needed)
-BUCKET_NAME = '3d-printing-site-files'
-
-# AWS S3 client (credentials will be automatically picked up from environment variables)
-s3_client = boto3.client('s3', region_name='us-east-2')
 
 # Set the maximum file size (e.g., 16 MB)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB file size limit
@@ -78,28 +72,6 @@ def check_model_size(model_dimensions):
 def calculate_usps_shipping(zip_code, weight_kg, express=False, connect_local=False):
     weight_lbs = weight_kg * 2.20462  # Convert kg to lbs
     return 7.90  # Example rate
-
-# Route to generate a pre-signed URL for S3 uploads
-@app.route('/generate-presigned-url', methods=['POST'])
-def generate_presigned_url():
-    try:
-        # Get the file name from the request
-        data = request.get_json()
-        file_name = data.get('file_name')
-        print(f"Generating pre-signed URL for file: {file_name}")
-
-        # Generate a pre-signed URL for uploading the file to S3
-        presigned_url = s3_client.generate_presigned_url(
-            'put_object',
-            Params={'Bucket': BUCKET_NAME, 'Key': file_name},
-            ExpiresIn=3600  # URL will expire in 1 hour
-        )
-
-        return jsonify({'url': presigned_url}), 200
-
-    except Exception as e:
-        logging.error(f"Error generating pre-signed URL: {e}")
-        return jsonify({'error': str(e)}), 500
 
 # Flask route to handle the quote request
 @app.route('/api/quote', methods=['POST'])
