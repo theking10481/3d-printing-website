@@ -1,24 +1,15 @@
+import io
 import json
 import trimesh
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
-import os
+import logging
 from .sales_tax_rates import sales_tax_rates
 from .zip_to_state import get_state_from_zip
-import logging
-import os
 
 logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
-
-# Define a valid path for storing uploaded files
-UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')  # This sets the upload folder to a "uploads" directory in your current working directory
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# Ensure the directory exists before saving files
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
 
 # Updated filament prices for Bambu Lab
 filament_prices = {
@@ -77,33 +68,85 @@ def calculate_usps_shipping(zip_code, weight_kg, express=False, connect_local=Fa
     weight_lbs = weight_kg * 2.20462  # Convert kg to lbs
     return 7.90  # Example rate
 
+# Flask route to handle the quote request
 @app.route('/api/quote', methods=['POST'])
 def quote():
+    logging.debug("Received request with data: %s", request.data)
     try:
-        # Handle file upload
+        # Parse form data instead of JSON
+        zip_code = request.form.get('zip_code')
+        filament_type = request.form.get('filament_type')
+        quantity = int(request.form.get('quantity', 1))
+        rush_order = bool(request.form.get('rush_order', False))
+        use_usps_connect_local = bool(request.form.get('use_usps_connect_local', False))
+
+        # Handle file upload (no saving to disk, use in-memory handling)
         if 'model_file' not in request.files:
             return jsonify({"error": "No file provided"}), 400
         file = request.files['model_file']
         if file.filename == '':
             return jsonify({"error": "No file selected"}), 400
 
-        # Secure the filename and save the file to the UPLOAD_FOLDER
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
+        # Read the uploaded file into an in-memory buffer
+        file_buffer = io.BytesIO(file.read())
 
-        # Load the 3D model using trimesh
+        # Load the 3D model directly from the in-memory buffer using trimesh
         try:
-            mesh = trimesh.load(file_path)
+            mesh = trimesh.load(file_buffer, file.filename)
         except Exception as e:
             return jsonify({"error": f"Failed to load 3D model: {str(e)}"}), 400
 
-        # Continue with your existing logic for volume calculation and cost...
+        # Calculate the volume and bounding box
         volume_cm3 = mesh.volume / 1000  # Convert from mm³ to cm³
         bounding_box = mesh.bounding_box.extents  # Dimensions (x, y, z)
 
-        # Your existing logic...
-        return jsonify({'success': 'File processed successfully'})
+        # Check if the filament type is valid
+        if filament_type not in material_densities or filament_type not in filament_prices:
+            return jsonify({"error": "Invalid filament type"}), 400
+
+        # Get the density for the filament
+        density = material_densities[filament_type]
+
+        # Calculate the total material weight
+        total_weight_g = calculate_weight(volume_cm3, density)
+        total_weight_kg = total_weight_g / 1000  # Convert to kg
+
+        # Check model size and determine print category
+        size_category, _ = check_model_size(bounding_box)
+
+        if size_category == "too_large":
+            return jsonify({"error": "Model too large"}), 400
+
+        # Calculate material cost
+        total_material_cost = total_weight_kg * filament_prices[filament_type] * quantity
+
+        # Shipping cost based on weight
+        shipping_weight = calculate_total_weight(volume_cm3, density)
+        shipping_cost = calculate_usps_shipping(zip_code, shipping_weight, express=rush_order, connect_local=use_usps_connect_local)
+
+        # Rush order surcharge
+        rush_order_surcharge = 20 if rush_order else 0
+
+        # Base cost
+        base_cost = 20  # Example base cost per item
+
+        # Total cost before tax
+        total_cost_before_tax = (base_cost + total_material_cost) * quantity + shipping_cost + rush_order_surcharge
+
+        # Calculate total cost with tax
+        total_with_tax, sales_tax = calculate_total_with_tax(zip_code, total_cost_before_tax, sales_tax_rates, get_state_from_zip)
+
+        # Prepare the response
+        response_data = {
+            'total_cost_with_tax': f"${total_with_tax:.2f}",
+            'sales_tax': f"${sales_tax:.2f}",
+            'base_cost': f"${base_cost:.2f}",
+            'material_cost': f"${total_material_cost:.2f}",
+            'shipping_cost': f"${shipping_cost:.2f}",
+            'rush_order_surcharge': f"${rush_order_surcharge:.2f}"
+        }
+
+        return jsonify(response_data)
 
     except Exception as e:
         logging.error("Error occurred: %s", e)
