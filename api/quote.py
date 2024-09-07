@@ -1,5 +1,7 @@
 import io
 import json
+import boto3
+import requests
 import trimesh
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
@@ -12,6 +14,10 @@ logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
 
 MINIMUM_WEIGHT_G = 0.1  # Minimum weight in grams (adjust as needed)
+BUCKET_NAME = '3d-printing-site-files'
+
+# AWS S3 client (credentials will be automatically picked up from environment variables)
+s3_client = boto3.client('s3', region_name='us-east-2')
 
 # Set the maximum file size (e.g., 16 MB)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB file size limit
@@ -73,39 +79,50 @@ def calculate_usps_shipping(zip_code, weight_kg, express=False, connect_local=Fa
     weight_lbs = weight_kg * 2.20462  # Convert kg to lbs
     return 7.90  # Example rate
 
+# Route to generate a pre-signed URL for S3 uploads
+@app.route('/generate-presigned-url', methods=['POST'])
+def generate_presigned_url():
+    try:
+        # Get the file name from the request
+        data = request.get_json()
+        file_name = data.get('file_name')
+
+        # Generate a pre-signed URL for uploading the file to S3
+        presigned_url = s3_client.generate_presigned_url(
+            'put_object',
+            Params={'Bucket': BUCKET_NAME, 'Key': file_name},
+            ExpiresIn=3600  # URL will expire in 1 hour
+        )
+
+        return jsonify({'url': presigned_url}), 200
+
+    except Exception as e:
+        logging.error(f"Error generating pre-signed URL: {e}")
+        return jsonify({'error': str(e)}), 500
+
 # Flask route to handle the quote request
 @app.route('/api/quote', methods=['POST'])
 def quote():
-    logging.debug("Received request with data: %s", request.form)
     try:
         # Parse form data instead of JSON
-        zip_code = request.form.get('zip_code')
-        filament_type = request.form.get('filament_type')
-        quantity = int(request.form.get('quantity', 1))
-        
-        # Debug: print key form inputs
-        print(f"ZIP Code: {zip_code}, Filament Type: {filament_type}, Quantity: {quantity}")
+        data = request.get_json()
+        zip_code = data.get('zip_code')
+        filament_type = data.get('filament_type')
+        quantity = int(data.get('quantity', 1))
+        rush_order = data.get('rush_order', 'false') == 'true'
+        use_usps_connect_local = data.get('use_usps_connect_local', 'false') == 'true'
+        file_url = data.get('file_url')
 
-        # Correct rush order logic: check for presence of 'rush_order'
-        rush_order = request.form.get('rush_order', 'false') == 'true'
-        use_usps_connect_local = request.form.get('use_usps_connect_local', 'false') == 'true'
+        # Fetch the file from the S3 URL
+        response = requests.get(file_url)
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to fetch file from S3"}), 500
 
-        # Debug: print checkbox values
-        print(f"Rush Order: {rush_order}, USPS Connect Local: {use_usps_connect_local}")
+        file_content = io.BytesIO(response.content)
 
-        # Handle file upload (no saving to disk, use in-memory handling)
-        if 'model_file' not in request.files:
-            return jsonify({"error": "No file provided"}), 400
-        file = request.files['model_file']
-        if file.filename == '':
-            return jsonify({"error": "No file selected"}), 400
-
-        # Read the uploaded file into an in-memory buffer
-        file_buffer = io.BytesIO(file.read())
-
-        # Load the 3D model directly from the in-memory buffer using trimesh
+        # Load the 3D model using trimesh
         try:
-            mesh = trimesh.load(file_buffer, file.filename)
+            mesh = trimesh.load(file_content, file_url)
         except Exception as e:
             return jsonify({"error": f"Failed to load 3D model: {str(e)}"}), 400
 
@@ -123,36 +140,24 @@ def quote():
         density = material_densities[filament_type]
         print(f"Filament type: {filament_type}, Density: {density} g/cm³")  # Debug filament
 
-                # Calculate the total material weight (with minimum threshold)
+        # Calculate the total material weight (with minimum threshold)
         total_weight_g = max(calculate_weight(volume_cm3, density), MINIMUM_WEIGHT_G)  # Minimum weight
         total_weight_kg = total_weight_g / 1000  # Convert to kg
         print(f"Material weight (g): {total_weight_g}, Material weight (kg): {total_weight_kg}")  # Debug weight
 
-        # Ensure material weight is above the minimum threshold
-        total_weight_g = max(calculate_weight(volume_cm3, density), MINIMUM_WEIGHT_G)
-
-
-        # Calculate material cost (only if the volume is non-zero)
+        # Calculate material cost
         if volume_cm3 > 0:
             total_material_cost = total_weight_kg * filament_prices[filament_type] * quantity
         else:
             total_material_cost = 0.0
 
-        logging.debug(f"Material cost: {total_material_cost}")  # Debug material cost
+        print(f"Material cost: {total_material_cost}")  # Debug material cost
 
         # Check model size and determine print category
         size_category, _ = check_model_size(bounding_box)
 
         if size_category == "too_large":
             return jsonify({"error": "Model too large"}), 400
-
-        # Calculate material cost (only if the volume is non-zero)
-        if volume_cm3 > 0:
-            total_material_cost = total_weight_kg * filament_prices[filament_type] * quantity
-        else:
-            total_material_cost = 0.0
-
-        logging.debug(f"Material cost: {total_material_cost}")  # Debug material cost
 
         # Shipping cost based on weight
         shipping_weight = calculate_total_weight(volume_cm3, density)
