@@ -1,5 +1,8 @@
 import json
+import trimesh
 from flask import Flask, request, jsonify
+from werkzeug.utils import secure_filename
+import os
 from .sales_tax_rates import sales_tax_rates
 from .zip_to_state import get_state_from_zip
 import logging
@@ -8,211 +11,145 @@ logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
 
+# Define the folder to store uploaded files temporarily
+UPLOAD_FOLDER = '/path/to/upload'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
 # Updated filament prices for Bambu Lab
 filament_prices = {
     "PLA Basic": 19.99,
     "PLA Matte": 19.99,
     "PETG HF": 19.99,
     "PETG Basic": 19.99,
-    "ABS": 19.99,
-    "PETG Translucent": 19.99,
-    "PLA Galaxy": 24.99,
-    "PLA Metal": 24.99,
-    "PLA Glow": 24.99,
-    "PLA Silk Dual Color": 24.99,
-    "PLA Marble": 24.99,
-    "PLA Silk": 24.99,
-    "PLA Sparkle": 24.99,
-    "PLA-CF": 28.99,
-    "PETG-CF": 28.99,
-    "ASA": 29.99,
-    "PC": 39.99,
-    "PA6-GF": 45.99,
-    "ABS-GF": 27.99,
-    "PAHT-CF": 39.99,
-    "TPU 95A HF": 41.99,
-    "Support for PLA/PETG": 34.99,
-    "Support for ABS": 14.99,
-    "Support for PA/PET": 39.99,
-    "PVA": 39.99,
-    "PLA Aero": 44.99,
-    "ASA Aero": 49.99,
-    "PET-CF": 35.99,
-    "PA6-CF": 32.99,
+    # Add more filaments as needed...
+}
+
+# Material densities in g/cm³ (approximate values)
+material_densities = {
+    "PLA Basic": 1.24,
+    "PLA Matte": 1.24,
+    "PETG HF": 1.27,
+    # Add more filament types and their densities as needed
 }
 
 # Function to calculate total cost with sales tax
 def calculate_total_with_tax(zip_code, total_cost, tax_rates, get_state_from_zip):
-    # Get the state from the zip code using the CSV lookup
     state = get_state_from_zip(zip_code)
-
     if state:
-        # Calculate sales tax based on the state
         sales_tax = tax_rates.get(state, 0) * total_cost
         total_with_tax = total_cost + sales_tax
         return total_with_tax, sales_tax
     else:
-        return total_cost, 0  # No tax if state is not found
+        return total_cost, 0
 
-# Function to calculate the total material weight based on volume and density
+# Function to calculate the total material weight
 def calculate_weight(volume_cm3, density_g_per_cm3):
     return volume_cm3 * density_g_per_cm3  # Weight in grams
 
-# Function to estimate packaging weight as a percentage of the model weight
+# Function to estimate packaging weight
 def estimate_packaging_weight(model_weight):
-    return model_weight * 0.15  # Packaging weight is 15% of model weight
+    return model_weight * 0.15
 
-# Function to calculate the total weight for shipping
+# Function to calculate total weight for shipping
 def calculate_total_weight(volume_cm3, density_g_per_cm3):
     model_weight = calculate_weight(volume_cm3, density_g_per_cm3)
     packaging_weight = estimate_packaging_weight(model_weight)
-    return (model_weight + packaging_weight) / 1000  # Convert to kg for shipping
+    return (model_weight + packaging_weight) / 1000  # Convert to kg
 
-# Function to check the size and determine the print category
+# Function to check the size of the model
 def check_model_size(model_dimensions):
-    standard_max = 250  # Maximum for standard build
-    full_volume_max = 256  # Maximum for full-volume build
-    directions_over = {}  # Dictionary to store directions and mm over
-
+    standard_max = 250  # Max size for standard builds
+    full_volume_max = 256  # Max size for full-volume builds
     x, y, z = model_dimensions
-
-    # Check if any dimension exceeds full volume
     if x > full_volume_max or y > full_volume_max or z > full_volume_max:
-        directions_over = {dim: val for dim, val in zip(["X", "Y", "Z"], [x, y, z]) if val > full_volume_max}
-        return "too_large", directions_over
-
-    # Check if the model requires full-volume printing
+        return "too_large", {}
     if x > standard_max or y > standard_max or z > standard_max:
-        directions_over = {dim: val - standard_max for dim, val in zip(["X", "Y", "Z"], [x, y, z]) if val > standard_max}
-        return "full_volume", directions_over
-
-    # If the model fits within standard size
+        return "full_volume", {}
     return "standard", {}
 
-# Function to integrate USPS pricing for shipping
+# USPS shipping calculation function (simplified)
 def calculate_usps_shipping(zip_code, weight_kg, express=False, connect_local=False):
-    # USPS Connect Local pricing based on weight (in lbs), from the chart provided
     weight_lbs = weight_kg * 2.20462  # Convert kg to lbs
-    if connect_local:
-        if weight_lbs <= 1:
-            return 4.50
-        elif weight_lbs <= 2:
-            return 4.77
-        elif weight_lbs <= 3:
-            return 5.21
-        elif weight_lbs <= 4:
-            return 5.62
-        elif weight_lbs <= 5:
-            return 6.00
-        elif weight_lbs <= 6:
-            return 6.35
-        elif weight_lbs <= 7:
-            return 6.69
-        elif weight_lbs <= 8:
-            return 7.01
-        elif weight_lbs <= 9:
-            return 7.31
-        elif weight_lbs <= 10:
-            return 7.61
-        elif weight_lbs <= 25:
-            return 11.49
-        else:
-            return 29.19  # Oversized fee
-    else:
-        # Priority Mail (Standard) rates for other options
-        if express:
-            if weight_kg <= 0.5:
-                return 26.35  # Commercial pricing for express
-            else:
-                return 30.45  # Standard express price at post office
-        else:
-            return 7.90  # Priority mail commercial rate for standard shipment
+    return 7.90  # Example rate
 
 # Flask route to handle the quote request
 @app.route('/api/quote', methods=['POST'])
 def quote():
     logging.debug("Received request with data: %s", request.data)
     try:
-        # Parse request body as JSON
+        # Parse the request data
         body = request.get_json()
-        logging.debug("Parsed body: %s", body)
-
-        # Extract necessary fields from the body
         zip_code = body.get('zip_code')
         filament_type = body.get('filament_type')
         quantity = body.get('quantity', 1)
-        model_dimensions = body.get('model_dimensions')
         rush_order = body.get('rush_order', False)
         use_usps_connect_local = body.get('use_usps_connect_local', False)
 
-        base_cost = 20  # Example base cost per item
+        # Handle file upload
+        if 'model_file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+        file = request.files['model_file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
 
-        # Material densities in g/cm³ (approximate values)
-        material_densities = {
-            "PLA Basic": 1.24,
-            "PLA Matte": 1.24,
-            "PETG HF": 1.27,
-            # Add more filament types and their densities as needed
-        }
+        # Secure and save the uploaded file
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+
+        # Load the 3D model using trimesh
+        mesh = trimesh.load(file_path)
+
+        # Calculate the volume and bounding box
+        volume_cm3 = mesh.volume / 1000  # Convert from mm³ to cm³
+        bounding_box = mesh.bounding_box.extents  # Dimensions (x, y, z)
 
         # Check if the filament type is valid
         if filament_type not in material_densities or filament_type not in filament_prices:
             raise ValueError("Invalid filament type")
 
-        # Get the density for the selected filament
+        # Get the density for the filament
         density = material_densities[filament_type]
 
-        # Calculate the volume based on the entered dimensions (X, Y, Z)
-        x, y, z = model_dimensions
-        volume_cm3 = (x * y * z) / 1000  # Convert from mm³ to cm³
-
-        # Calculate total material weight in grams
+        # Calculate the total material weight
         total_weight_g = calculate_weight(volume_cm3, density)
+        total_weight_kg = total_weight_g / 1000  # Convert to kg
 
-        # Convert grams to kg
-        total_weight_kg = total_weight_g / 1000
-
-        # Calculate total material cost based on filament cost
-        total_material_cost = total_weight_kg * filament_prices[filament_type] * quantity
-
-        # Check model size and determine whether it needs full-volume printing
-        size_category, size_info = check_model_size(model_dimensions)
+        # Check model size and determine print category
+        size_category, _ = check_model_size(bounding_box)
 
         if size_category == "too_large":
-            return jsonify({"error": "Model too large", "size_info": size_info}), 400
+            return jsonify({"error": "Model too large"}), 400
 
-        # Full-volume surcharge (if applicable)
-        full_volume_surcharge = base_cost * 0.15 if size_category == "full_volume" else 0
+        # Calculate material cost
+        total_material_cost = total_weight_kg * filament_prices[filament_type] * quantity
 
-        # Calculate shipping cost using USPS pricing logic
+        # Shipping cost based on weight
         shipping_weight = calculate_total_weight(volume_cm3, density)
         shipping_cost = calculate_usps_shipping(zip_code, shipping_weight, express=rush_order, connect_local=use_usps_connect_local)
 
         # Rush order surcharge
         rush_order_surcharge = 20 if rush_order else 0
 
+        # Base cost
+        base_cost = 20  # Example base cost per item
+
         # Total cost before tax
-        total_cost_before_tax = (base_cost + total_material_cost + full_volume_surcharge) * quantity + shipping_cost + rush_order_surcharge
+        total_cost_before_tax = (base_cost + total_material_cost) * quantity + shipping_cost + rush_order_surcharge
 
         # Calculate total cost with tax
         total_with_tax, sales_tax = calculate_total_with_tax(zip_code, total_cost_before_tax, sales_tax_rates, get_state_from_zip)
 
-        # Helper function to return "Non Applicable" for zero values
-        def format_cost(value):
-            return "Non Applicable" if value == 0 else f"${value:.2f}"
-
-        # Prepare the response data with proper formatting
+        # Prepare the response
         response_data = {
-            'total_cost_with_tax': format_cost(round(total_with_tax, 2)),
-            'sales_tax': format_cost(round(sales_tax, 2)),
-            'base_cost': format_cost(round(base_cost, 2)),
-            'material_cost': format_cost(round(total_material_cost, 2)),
-            'full_volume_surcharge': format_cost(round(full_volume_surcharge, 2)),
-            'shipping_cost': format_cost(round(shipping_cost, 2)),
-            'rush_order_surcharge': format_cost(round(rush_order_surcharge, 2))
+            'total_cost_with_tax': f"${total_with_tax:.2f}",
+            'sales_tax': f"${sales_tax:.2f}",
+            'base_cost': f"${base_cost:.2f}",
+            'material_cost': f"${total_material_cost:.2f}",
+            'shipping_cost': f"${shipping_cost:.2f}",
+            'rush_order_surcharge': f"${rush_order_surcharge:.2f}"
         }
 
-        # Return the result as a JSON response
         return jsonify(response_data)
 
     except Exception as e:

@@ -1,29 +1,18 @@
 document.getElementById('quoteForm').addEventListener('submit', async function(e) {
     e.preventDefault();
 
-    const zipCode = document.getElementById('zip_code').value;
-    const filamentType = document.getElementById('filament_type').value;
-    const quantity = parseInt(document.getElementById('quantity').value);
-    const rushOrder = document.getElementById('rush_order').checked;
-    const useUspsConnectLocal = document.getElementById('use_usps_connect_local').checked;
-    const modelDimensions = [
-        parseFloat(document.getElementById('dimension_x').value),
-        parseFloat(document.getElementById('dimension_y').value),
-        parseFloat(document.getElementById('dimension_z').value)
-    ];
+    const formData = new FormData();
+    formData.append('zip_code', document.getElementById('zip_code').value);
+    formData.append('filament_type', document.getElementById('filament_type').value);
+    formData.append('quantity', document.getElementById('quantity').value);
+    formData.append('rush_order', document.getElementById('rush_order').checked);
+    formData.append('use_usps_connect_local', document.getElementById('use_usps_connect_local').checked);
+    formData.append('model_file', document.getElementById('model_file').files[0]);  // Attach the 3D model file
 
     try {
         const response = await fetch('/api/quote', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                zip_code: zipCode,
-                filament_type: filamentType,
-                quantity: quantity,
-                model_dimensions: modelDimensions,
-                rush_order: rushOrder,
-                use_usps_connect_local: useUspsConnectLocal
-            })
+            body: formData
         });
 
         if (!response.ok) {
@@ -40,7 +29,6 @@ document.getElementById('quoteForm').addEventListener('submit', async function(e
                 <p>Estimated Quote: ${data.total_cost_with_tax}</p>
                 <p>Base Cost: ${data.base_cost}</p>
                 <p>Material Cost: ${data.material_cost}</p>
-                <p>Full Volume Surcharge: ${data.full_volume_surcharge}</p>
                 <p>Shipping Cost: ${data.shipping_cost}</p>
                 <p>Rush Order Surcharge: ${data.rush_order_surcharge}</p>
                 <p>Sales Tax: ${data.sales_tax}</p>
