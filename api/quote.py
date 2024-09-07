@@ -81,9 +81,15 @@ def quote():
         filament_type = request.form.get('filament_type')
         quantity = int(request.form.get('quantity', 1))
         
+        # Debug: print key form inputs
+        print(f"ZIP Code: {zip_code}, Filament Type: {filament_type}, Quantity: {quantity}")
+
         # Correct rush order logic: check for presence of 'rush_order'
         rush_order = request.form.get('rush_order', 'false') == 'true'
         use_usps_connect_local = request.form.get('use_usps_connect_local', 'false') == 'true'
+
+        # Debug: print checkbox values
+        print(f"Rush Order: {rush_order}, USPS Connect Local: {use_usps_connect_local}")
 
         # Handle file upload (no saving to disk, use in-memory handling)
         if 'model_file' not in request.files:
@@ -103,7 +109,8 @@ def quote():
 
         # Calculate the volume and bounding box
         volume_cm3 = mesh.volume / 1000  # Convert from mm³ to cm³
-        logging.debug(f"Model volume (cm³): {volume_cm3}")  # Debug volume
+        print(f"Model volume (cm³): {volume_cm3}")  # Debug volume
+
         bounding_box = mesh.bounding_box.extents  # Dimensions (x, y, z)
 
         # Check if the filament type is valid
@@ -112,12 +119,12 @@ def quote():
 
         # Get the density for the filament
         density = material_densities[filament_type]
-        logging.debug(f"Filament type: {filament_type}, Density: {density} g/cm³")  # Debug filament
+        print(f"Filament type: {filament_type}, Density: {density} g/cm³")  # Debug filament
 
         # Calculate the total material weight
         total_weight_g = calculate_weight(volume_cm3, density)  # Weight in grams
         total_weight_kg = total_weight_g / 1000  # Convert to kg
-        logging.debug(f"Material weight (g): {total_weight_g}")  # Debug weight
+        print(f"Material weight (g): {total_weight_g}, Material weight (kg): {total_weight_kg}")  # Debug weight
 
         # Check model size and determine print category
         size_category, _ = check_model_size(bounding_box)
