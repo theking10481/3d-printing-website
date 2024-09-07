@@ -11,6 +11,8 @@ logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
 
+MINIMUM_WEIGHT_G = 0.1  # Minimum weight in grams (adjust as needed)
+
 # Set the maximum file size (e.g., 16 MB)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB file size limit
 
@@ -125,8 +127,6 @@ def quote():
         total_weight_g = max(calculate_weight(volume_cm3, density), MINIMUM_WEIGHT_G)  # Minimum weight
         total_weight_kg = total_weight_g / 1000  # Convert to kg
         print(f"Material weight (g): {total_weight_g}, Material weight (kg): {total_weight_kg}")  # Debug weight
-
-        MINIMUM_WEIGHT_G = 0.1  # Minimum weight in grams (adjust as needed)
 
         # Ensure material weight is above the minimum threshold
         total_weight_g = max(calculate_weight(volume_cm3, density), MINIMUM_WEIGHT_G)
