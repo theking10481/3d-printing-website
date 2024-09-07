@@ -121,10 +121,24 @@ def quote():
         density = material_densities[filament_type]
         print(f"Filament type: {filament_type}, Density: {density} g/cm³")  # Debug filament
 
-        # Calculate the total material weight
-        total_weight_g = calculate_weight(volume_cm3, density)  # Weight in grams
+                # Calculate the total material weight (with minimum threshold)
+        total_weight_g = max(calculate_weight(volume_cm3, density), MINIMUM_WEIGHT_G)  # Minimum weight
         total_weight_kg = total_weight_g / 1000  # Convert to kg
         print(f"Material weight (g): {total_weight_g}, Material weight (kg): {total_weight_kg}")  # Debug weight
+
+        MINIMUM_WEIGHT_G = 0.1  # Minimum weight in grams (adjust as needed)
+
+        # Ensure material weight is above the minimum threshold
+        total_weight_g = max(calculate_weight(volume_cm3, density), MINIMUM_WEIGHT_G)
+
+
+        # Calculate material cost (only if the volume is non-zero)
+        if volume_cm3 > 0:
+            total_material_cost = total_weight_kg * filament_prices[filament_type] * quantity
+        else:
+            total_material_cost = 0.0
+
+        logging.debug(f"Material cost: {total_material_cost}")  # Debug material cost
 
         # Check model size and determine print category
         size_category, _ = check_model_size(bounding_box)
