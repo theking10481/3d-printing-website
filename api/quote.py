@@ -11,6 +11,9 @@ logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
 
+# Set the maximum file size (e.g., 16 MB)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB file size limit
+
 # Updated filament prices for Bambu Lab
 filament_prices = {
     "PLA Basic": 19.99,
@@ -77,8 +80,8 @@ def quote():
         zip_code = request.form.get('zip_code')
         filament_type = request.form.get('filament_type')
         quantity = int(request.form.get('quantity', 1))
-        rush_order = bool(request.form.get('rush_order', False))
-        use_usps_connect_local = bool(request.form.get('use_usps_connect_local', False))
+        rush_order = 'rush_order' in request.form  # Check if rush order is checked
+        use_usps_connect_local = 'use_usps_connect_local' in request.form
 
         # Handle file upload (no saving to disk, use in-memory handling)
         if 'model_file' not in request.files:
@@ -117,14 +120,17 @@ def quote():
         if size_category == "too_large":
             return jsonify({"error": "Model too large"}), 400
 
-        # Calculate material cost
-        total_material_cost = total_weight_kg * filament_prices[filament_type] * quantity
+        # Calculate material cost (only if the volume is non-zero)
+        if volume_cm3 > 0:
+            total_material_cost = total_weight_kg * filament_prices[filament_type] * quantity
+        else:
+            total_material_cost = 0.0
 
         # Shipping cost based on weight
         shipping_weight = calculate_total_weight(volume_cm3, density)
         shipping_cost = calculate_usps_shipping(zip_code, shipping_weight, express=rush_order, connect_local=use_usps_connect_local)
 
-        # Rush order surcharge
+        # Rush order surcharge (apply only if rush order is checked)
         rush_order_surcharge = 20 if rush_order else 0
 
         # Base cost
@@ -151,6 +157,11 @@ def quote():
     except Exception as e:
         logging.error("Error occurred: %s", e)
         return jsonify({'error': str(e)}), 500
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    logging.error(f"File too large: {error}")
+    return jsonify({'error': 'File too large. Maximum file size is 16MB.'}), 413
 
 if __name__ == '__main__':
     app.run(debug=True)
