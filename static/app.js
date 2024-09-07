@@ -12,7 +12,7 @@ document.getElementById('quoteForm').addEventListener('submit', async function(e
     try {
         const response = await fetch('/api/quote', {
             method: 'POST',
-            body: formData
+            body: formData  // FormData automatically sets the correct content type
         });
 
         if (!response.ok) {

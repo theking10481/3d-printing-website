@@ -72,18 +72,15 @@ def calculate_usps_shipping(zip_code, weight_kg, express=False, connect_local=Fa
     weight_lbs = weight_kg * 2.20462  # Convert kg to lbs
     return 7.90  # Example rate
 
-# Flask route to handle the quote request
 @app.route('/api/quote', methods=['POST'])
 def quote():
-    logging.debug("Received request with data: %s", request.data)
     try:
-        # Parse the request data
-        body = request.get_json()
-        zip_code = body.get('zip_code')
-        filament_type = body.get('filament_type')
-        quantity = body.get('quantity', 1)
-        rush_order = body.get('rush_order', False)
-        use_usps_connect_local = body.get('use_usps_connect_local', False)
+        # Extract form data from the request
+        zip_code = request.form.get('zip_code')
+        filament_type = request.form.get('filament_type')
+        quantity = int(request.form.get('quantity', 1))
+        rush_order = bool(request.form.get('rush_order', False))
+        use_usps_connect_local = bool(request.form.get('use_usps_connect_local', False))
 
         # Handle file upload
         if 'model_file' not in request.files:
@@ -92,55 +89,51 @@ def quote():
         if file.filename == '':
             return jsonify({"error": "No file selected"}), 400
 
-        # Secure and save the uploaded file
+        # Save the uploaded file temporarily
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
 
         # Load the 3D model using trimesh
-        mesh = trimesh.load(file_path)
+        try:
+            mesh = trimesh.load(file_path)
+        except Exception as e:
+            return jsonify({"error": f"Failed to load 3D model: {str(e)}"}), 400
 
         # Calculate the volume and bounding box
         volume_cm3 = mesh.volume / 1000  # Convert from mm³ to cm³
         bounding_box = mesh.bounding_box.extents  # Dimensions (x, y, z)
 
-        # Check if the filament type is valid
+        # Ensure valid filament type and calculate costs
         if filament_type not in material_densities or filament_type not in filament_prices:
-            raise ValueError("Invalid filament type")
+            return jsonify({"error": "Invalid filament type"}), 400
 
-        # Get the density for the filament
+        # Get the density for the filament and calculate the total weight
         density = material_densities[filament_type]
-
-        # Calculate the total material weight
         total_weight_g = calculate_weight(volume_cm3, density)
-        total_weight_kg = total_weight_g / 1000  # Convert to kg
+        total_weight_kg = total_weight_g / 1000
 
-        # Check model size and determine print category
+        # Check model size and print category
         size_category, _ = check_model_size(bounding_box)
-
         if size_category == "too_large":
             return jsonify({"error": "Model too large"}), 400
 
-        # Calculate material cost
+        # Calculate total material cost
         total_material_cost = total_weight_kg * filament_prices[filament_type] * quantity
 
-        # Shipping cost based on weight
+        # Calculate shipping cost and other surcharges
         shipping_weight = calculate_total_weight(volume_cm3, density)
         shipping_cost = calculate_usps_shipping(zip_code, shipping_weight, express=rush_order, connect_local=use_usps_connect_local)
-
-        # Rush order surcharge
         rush_order_surcharge = 20 if rush_order else 0
-
-        # Base cost
         base_cost = 20  # Example base cost per item
 
-        # Total cost before tax
+        # Calculate total cost before tax
         total_cost_before_tax = (base_cost + total_material_cost) * quantity + shipping_cost + rush_order_surcharge
 
         # Calculate total cost with tax
         total_with_tax, sales_tax = calculate_total_with_tax(zip_code, total_cost_before_tax, sales_tax_rates, get_state_from_zip)
 
-        # Prepare the response
+        # Prepare the response data
         response_data = {
             'total_cost_with_tax': f"${total_with_tax:.2f}",
             'sales_tax': f"${sales_tax:.2f}",
