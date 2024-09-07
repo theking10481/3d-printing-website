@@ -1,8 +1,12 @@
 import io
+import boto3
 import json
-import requests
+import logging
 import trimesh
 from flask import Flask, request, jsonify
+from werkzeug.utils import secure_filename
+from botocore.exceptions import ClientError
+import os
 import logging
 from .sales_tax_rates import sales_tax_rates
 from .zip_to_state import get_state_from_zip
@@ -12,6 +16,20 @@ logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
 
 MINIMUM_WEIGHT_G = 0.1  # Minimum weight in grams (adjust as needed)
+
+BUCKET_NAME = '3d-printing-website-files'
+
+base_cost = 20
+
+
+
+# Define S3 client
+s3_client = boto3.client(
+    's3',
+    region_name=os.getenv('AWS_REGION'),
+    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
+)
 
 # Set the maximum file size (e.g., 16 MB)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB file size limit
@@ -35,12 +53,22 @@ material_densities = {
 
 # Function to calculate total cost with sales tax
 def calculate_total_with_tax(zip_code, total_cost, tax_rates, get_state_from_zip):
+    # Get the state based on the ZIP code
     state = get_state_from_zip(zip_code)
+    
+    # Ensure we have a valid state
     if state:
-        sales_tax = tax_rates.get(state, 0) * total_cost
+        # Look up the sales tax rate for the state
+        sales_tax_rate = tax_rates.get(state, 0)
+        
+        # Calculate sales tax
+        sales_tax = sales_tax_rate * total_cost
+        
+        # Add sales tax to the total cost
         total_with_tax = total_cost + sales_tax
         return total_with_tax, sales_tax
     else:
+        # If no state is found, return the original cost with no tax
         return total_cost, 0
 
 # Function to calculate the total material weight
@@ -74,35 +102,56 @@ def calculate_usps_shipping(zip_code, weight_kg, express=False, connect_local=Fa
     return 7.90  # Example rate
 
 # Flask route to handle the quote request
+def upload_file_to_s3(file_buffer, bucket, object_name):
+    """Upload a file buffer to an S3 bucket"""
+
+    try:
+        # Upload the file from memory directly to S3
+        s3_client.upload_fileobj(file_buffer, bucket, object_name)
+    except ClientError as e:
+        logging.error(e)
+        return False
+    return True
+
+
 @app.route('/api/quote', methods=['POST'])
 def quote():
     try:
-        # Parse form data instead of JSON
-        data = request.get_json()
-        zip_code = data.get('zip_code')
-        filament_type = data.get('filament_type')
-        quantity = int(data.get('quantity', 1))
-        rush_order = data.get('rush_order', 'false') == 'true'
-        use_usps_connect_local = data.get('use_usps_connect_local', 'false') == 'true'
-        file_url = data.get('file_url')
+        # Get form data
+        zip_code = request.form.get('zip_code')
+        filament_type = request.form.get('filament_type')
+        quantity = int(request.form.get('quantity', 1))
+        rush_order = request.form.get('rush_order', 'false') == 'true'
+        use_usps_connect_local = request.form.get('use_usps_connect_local', 'false') == 'true'
 
-        # Fetch the file from the S3 URL
-        response = requests.get(file_url)
-        if response.status_code != 200:
-            return jsonify({"error": "Failed to fetch file from S3"}), 500
+        # Handle file upload
+        if 'model_file' not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+        file = request.files['model_file']
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
 
-        file_content = io.BytesIO(response.content)
+        # Secure the filename and create S3 object name
+        object_name = secure_filename(file.filename)
+        
+        # Upload file to S3
+        file_buffer = io.BytesIO(file.read())
+        upload_success = upload_file_to_s3(file_buffer, BUCKET_NAME, object_name)
 
-        # Load the 3D model using trimesh
+        if not upload_success:
+            return jsonify({"error": "Failed to upload file to S3"}), 500
+
+        # Reset buffer position before reusing
+        file_buffer.seek(0)
+
+        # Load the 3D model directly from the in-memory buffer using trimesh
         try:
-            mesh = trimesh.load(file_content, file_url)
+            mesh = trimesh.load(file_buffer, file.filename)
         except Exception as e:
             return jsonify({"error": f"Failed to load 3D model: {str(e)}"}), 400
 
         # Calculate the volume and bounding box
         volume_cm3 = mesh.volume / 1000  # Convert from mm³ to cm³
-        print(f"Model volume (cm³): {volume_cm3}")  # Debug volume
-
         bounding_box = mesh.bounding_box.extents  # Dimensions (x, y, z)
 
         # Check if the filament type is valid
@@ -111,36 +160,23 @@ def quote():
 
         # Get the density for the filament
         density = material_densities[filament_type]
-        print(f"Filament type: {filament_type}, Density: {density} g/cm³")  # Debug filament
 
         # Calculate the total material weight (with minimum threshold)
-        total_weight_g = max(calculate_weight(volume_cm3, density), MINIMUM_WEIGHT_G)  # Minimum weight
+        total_weight_g = max(calculate_weight(volume_cm3, density), MINIMUM_WEIGHT_G)
         total_weight_kg = total_weight_g / 1000  # Convert to kg
-        print(f"Material weight (g): {total_weight_g}, Material weight (kg): {total_weight_kg}")  # Debug weight
 
         # Calculate material cost
-        if volume_cm3 > 0:
-            total_material_cost = total_weight_kg * filament_prices[filament_type] * quantity
-        else:
-            total_material_cost = 0.0
+        total_material_cost = total_weight_kg * filament_prices[filament_type] * quantity
 
-        print(f"Material cost: {total_material_cost}")  # Debug material cost
+        # Base cost
+        base_cost = 20
 
-        # Check model size and determine print category
-        size_category, _ = check_model_size(bounding_box)
-
-        if size_category == "too_large":
-            return jsonify({"error": "Model too large"}), 400
+        # Rush order surcharge
+        rush_order_surcharge = 20 if rush_order else 0
 
         # Shipping cost based on weight
         shipping_weight = calculate_total_weight(volume_cm3, density)
         shipping_cost = calculate_usps_shipping(zip_code, shipping_weight, express=rush_order, connect_local=use_usps_connect_local)
-
-        # Rush order surcharge (apply only if rush order is checked)
-        rush_order_surcharge = 20 if rush_order else 0
-
-        # Base cost
-        base_cost = 20  # Example base cost per item
 
         # Total cost before tax
         total_cost_before_tax = (base_cost + total_material_cost) * quantity + shipping_cost + rush_order_surcharge
@@ -161,7 +197,7 @@ def quote():
         return jsonify(response_data)
 
     except Exception as e:
-        logging.error("Error occurred: %s", e)
+        logging.error(f"Error occurred: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.errorhandler(413)
